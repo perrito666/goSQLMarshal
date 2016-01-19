@@ -2,11 +2,21 @@
 // Licenced under the MIT licence, see LICENCE for details.
 package sqlmarshal
 
+import (
+	"fmt"
+	"strings"
+)
+
 type SQLDriver interface {
-	// Type returns a given driver version of the provided
-	// ANSI type and a bool indicating if said type was
-	// defined.
-	Type(ANSISQLFieldKind) (string, bool)
+	// Define returns a given driver version of the provided
+	// ANSI type Definition for Creation and a bool indicating
+	// the result indicating if said type was defined.
+	Define(ANSISQLFieldKind, string) (string, bool)
+
+	// DefineFK returns the definition for a Foreign Key
+	// composed with the field name, the foreign table name
+	// and the pk/pks of the referenced table.
+	DefineFK(string, string, []string) string
 }
 
 var ansiTypes = map[ANSISQLFieldKind]string{
@@ -32,9 +42,23 @@ var ansiTypes = map[ANSISQLFieldKind]string{
 type ANSISQLDriver struct {
 }
 
+// customers_services_fk FOREIGN KEY (service_id) REFERENCES services (service_id) ON DELETE CASCADE ON UPDATE CASCADE
+const (
+	fkTemplate   = `%s FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE ON UPDATE CASCADE`
+	baseTempalte = `%s %s`
+)
+
 // Type implements SQLDriver.
 // TODO(perrito666) support sizes for things like varchar.
-func (*ANSISQLDriver) Type(k ANSISQLFieldKind) (string, bool) {
+func (*ANSISQLDriver) Define(k ANSISQLFieldKind, name string) (string, bool) {
 	v, ok := ansiTypes[k]
+	if ok {
+		v = fmt.Sprintf(baseTempalte, name, v)
+	}
 	return v, ok
+}
+
+func (*ANSISQLDriver) DefineFK(fieldName, referenceName string, referenceFields []string) string {
+	referenceField := strings.Join(referenceFields, ", ")
+	return fmt.Sprintf(fkTemplate, fieldName, referenceField, referenceName, referenceField)
 }

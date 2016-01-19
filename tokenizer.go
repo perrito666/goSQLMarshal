@@ -37,33 +37,62 @@ const (
 // tokenizedField holds the name of a struct field and its
 // sql type.
 type tokenizedField struct {
-	name string
-	kind ANSISQLFieldKind
+	name     string
+	kind     ANSISQLFieldKind
+	isPk     bool
+	isUnique bool
+	// TODO (perrito666) implement here a way to recursively tokenize for fk
+	references *tokenized
 }
 
 // tokenized holds a set of fields of a given struct and
 // its sql types.
 type tokenized struct {
+	name   string
 	fields []tokenizedField
+}
+
+func (t *tokenized) primary() []string {
+	primary := []string{}
+	for _, f := range t.fields {
+		if f.isPk {
+			primary = append(primary, f.name)
+		}
+	}
+	return primary
 }
 
 // fieldsAndTypes retuns a map of the fields in the tokenized type
 // and its SQL types.
 // TODO(perrito666) use tags in fields for fk
 // TODO(perrito666) fix FK
-func (t *tokenized) fieldsAndTypes(d SQLDriver) (map[string]string, error) {
-	fields := make(map[string]string, len(t.fields))
+func (t *tokenized) fieldsAndTypes(d SQLDriver) ([]string, error) {
+	fields := make([]string, len(t.fields))
 	ansiD := ANSISQLDriver{}
 	for i := range t.fields {
 		field := t.fields[i]
-		kind, ok := d.Type(field.kind)
-		if !ok {
-			kind, ok = ansiD.Type(field.kind)
+		// FIXME (perrito666) call fk specific function here with the extra data
+		// to keep the basic one clean
+		var definition string
+		var ok bool
+		switch field.kind {
+		case sqlFK:
+			pk := t.primary()
+			// TODO(perrito666) insert an _id field when there is no pk
+			if len(pk) == 0 {
+				pk = []string{field.name}
+			}
+			definition = d.DefineFK(field.name, field.references.name, pk)
+		default:
+			definition, ok = d.Define(field.kind, field.name)
+			if !ok {
+				definition, ok = ansiD.Define(field.kind, field.name)
+			}
+			if !ok {
+				return nil, fmt.Errorf("cannot determine an SQL Definition for field %q in the provided driver or the ANSI driver")
+			}
 		}
-		if !ok {
-			return nil, fmt.Errorf("cannot determine an SQL name for field %q in the provided driver or the ANSI driver")
-		}
-		fields[field.name] = kind
+		fields[i] = definition
 	}
 	return fields, nil
 }
@@ -109,7 +138,22 @@ func tokenize(t reflect.Type) (*tokenized, error) {
 		if !ok {
 			return nil, fmt.Errorf("cannot resolve SQL equivalent for %q", f.Name)
 		}
+		if sqlType == sqlFK {
+			fieldType := f.Type
+			// if it is a ptr we need it dereferenced.
+			if fieldType.Kind() == reflect.Ptr {
+				fieldType = fieldType.Elem()
+			}
+			if fieldType.Kind() != reflect.Struct {
+				return nil, fmt.Errorf("expected %v got %v", reflect.Struct, fieldType.Kind())
+			}
+			fk, err := tokenize(fieldType)
+			if err != nil {
+				return nil, fmt.Errorf("resolving foreign key for field %q: %v", f.Name, err)
+			}
+			fields[i].references = fk
+		}
 		fields[i].kind = sqlType
 	}
-	return &tokenized{fields: fields}, nil
+	return &tokenized{fields: fields, name: t.Name()}, nil
 }

@@ -24,13 +24,7 @@ func (s *SQLMarshaller) Create(driver SQLDriver) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("crafting the fields for CREATE statement: %v", err)
 	}
-	createFields := make([]string, len(fields))
-	i := 0
-	for k, v := range fields {
-		createFields[i] = fmt.Sprintf("%s %s", k, v)
-		i++
-	}
-	return fmt.Sprintf(baseCREATE, s.typeOf.Name(), strings.Join(createFields, ",")), nil
+	return fmt.Sprintf(baseCREATE, s.typeOf.Name(), strings.Join(fields, ", ")), nil
 }
 
 // NewTypeSQLMarshaller returns a marshaller for the type of the passed

@@ -4,10 +4,17 @@ package sqlmarshal
 
 import "testing"
 
+type dumbPtr struct {
+	aField       int
+	anotherField string
+}
+
 type dumbStruct struct {
 	testInt    int
 	testString string
 	testFloat  float32
+	testPtr    *dumbPtr
+	testStruct dumbPtr
 }
 
 func (*dumbStruct) methodsAreIgnored() {
@@ -18,6 +25,14 @@ func TestCreate(t *testing.T) {
 		testInt:    1,
 		testString: "some velvet string",
 		testFloat:  2.0,
+		testPtr: &dumbPtr{
+			aField:       3,
+			anotherField: "another string",
+		},
+		testStruct: dumbPtr{
+			aField:       4,
+			anotherField: "another non struct field",
+		},
 	}
 	m, err := NewTypeSQLMarshaller(d)
 	if err != nil {
