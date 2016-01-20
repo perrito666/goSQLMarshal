@@ -2,7 +2,10 @@
 // Licenced under the MIT licence, see LICENCE for details.
 package sqlmarshal
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 type dumbFK struct {
 	aField       int `sql:"primary"`
@@ -93,6 +96,60 @@ func TestCreateUnTagged(t *testing.T) {
 	// the order of the map.
 	t.Log(c)
 	expectedSQL := `CREATE TABLE untaggedDumbStruct testInt SMALLINT, testString VARCHAR, testFloat FLOAT, testPtr FOREIGN KEY (testPtr) REFERENCES untaggedDumbFK (testPtr) ON DELETE CASCADE ON UPDATE CASCADE, testStruct FOREIGN KEY (testStruct) REFERENCES untaggedDumbFK (testStruct) ON DELETE CASCADE ON UPDATE CASCADE;`
+	if c != expectedSQL {
+		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+}
+
+// DOC Sample
+type Sample struct {
+	ID                int `sql:"primary"`
+	Name              string
+	Reference         *Reference
+	ConcreteReference Reference
+}
+
+type Reference struct {
+	DifferentNameID int `sql:"primary"`
+	Name            string
+}
+
+func doSQLCreate() (string, error) {
+	sample := Sample{
+		ID:   1,
+		Name: "a sample name",
+		Reference: &Reference{
+			DifferentNameID: 1,
+			Name:            "a reference name",
+		},
+		ConcreteReference: Reference{
+			DifferentNameID: 2,
+			Name:            "another reference name",
+		},
+	}
+
+	m, err := NewTypeSQLMarshaller(sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot create marshaler: %v", err)
+	}
+
+	dr := &ANSISQLDriver{}
+
+	c, err := m.Create(dr)
+	if err != nil {
+		return "", fmt.Errorf("cannot marshall to CREATE statement: %v", err)
+	}
+	return c, nil
+}
+
+func TestDocSampleCreate(t *testing.T) {
+	c, err := doSQLCreate()
+	if err != nil {
+		t.Errorf("could not run documentation sample for CREATE: %v", err)
+	}
+	t.Log(c)
+	expectedSQL := `CREATE TABLE Sample ID SMALLINT, Name VARCHAR, Reference FOREIGN KEY (DifferentNameID) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, ConcreteReference FOREIGN KEY (DifferentNameID) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY (ID);`
 	if c != expectedSQL {
 		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}
