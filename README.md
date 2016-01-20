@@ -26,7 +26,7 @@ will assume that the key name is the same as the field in the referencing struct
 
 ***Note:** there is no consistency checking at present:*
 
-```golang
+```go
 type Sample struct {
 	ID                int `sql:"primary"`
 	Name              string
