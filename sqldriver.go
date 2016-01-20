@@ -17,6 +17,11 @@ type SQLDriver interface {
 	// composed with the field name, the foreign table name
 	// and the pk/pks of the referenced table.
 	DefineFK(string, string, []string) string
+
+	// DefinePK returns the Primary key definition for the
+	// field or fields passed and a boolean indicating if
+	// there is a pk.
+	DefinePK([]string) (string, bool)
 }
 
 var ansiTypes = map[ANSISQLFieldKind]string{
@@ -45,7 +50,8 @@ type ANSISQLDriver struct {
 // customers_services_fk FOREIGN KEY (service_id) REFERENCES services (service_id) ON DELETE CASCADE ON UPDATE CASCADE
 const (
 	fkTemplate   = `%s FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE ON UPDATE CASCADE`
-	baseTempalte = `%s %s`
+	pkTemplate   = `PRIMARY KEY (%s)`
+	baseTemplate = `%s %s`
 )
 
 // Type implements SQLDriver.
@@ -53,12 +59,21 @@ const (
 func (*ANSISQLDriver) Define(k ANSISQLFieldKind, name string) (string, bool) {
 	v, ok := ansiTypes[k]
 	if ok {
-		v = fmt.Sprintf(baseTempalte, name, v)
+		v = fmt.Sprintf(baseTemplate, name, v)
 	}
 	return v, ok
 }
 
+// DefineFK implements SQLDriver
 func (*ANSISQLDriver) DefineFK(fieldName, referenceName string, referenceFields []string) string {
 	referenceField := strings.Join(referenceFields, ", ")
 	return fmt.Sprintf(fkTemplate, fieldName, referenceField, referenceName, referenceField)
+}
+
+// DefinePK implements SQLDriver
+func (*ANSISQLDriver) DefinePK(pkFields []string) (string, bool) {
+	if len(pkFields) == 0 {
+		return "", false
+	}
+	return fmt.Sprintf(pkTemplate, strings.Join(pkFields, " ,")), true
 }

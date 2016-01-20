@@ -5,6 +5,7 @@ package sqlmarshal
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 type ANSISQLFieldKind int
@@ -77,7 +78,7 @@ func (t *tokenized) fieldsAndTypes(d SQLDriver) ([]string, error) {
 		var ok bool
 		switch field.kind {
 		case sqlFK:
-			pk := t.primary()
+			pk := field.references.primary()
 			// TODO(perrito666) insert an _id field when there is no pk
 			if len(pk) == 0 {
 				pk = []string{field.name}
@@ -93,6 +94,10 @@ func (t *tokenized) fieldsAndTypes(d SQLDriver) ([]string, error) {
 			}
 		}
 		fields[i] = definition
+	}
+	pk, ok := d.DefinePK(t.primary())
+	if ok {
+		fields = append(fields, pk)
 	}
 	return fields, nil
 }
@@ -126,6 +131,25 @@ func resolveType(f reflect.StructField) (ANSISQLFieldKind, bool) {
 	return sqlType, true
 }
 
+const (
+	tagPrimary = "primary"
+	tagUnique  = "unique"
+)
+
+func (f *tokenizedField) processTags(tag reflect.StructTag) {
+	tagstring := tag.Get("sql")
+	tags := strings.Split(tagstring, ",")
+	for _, t := range tags {
+		switch t {
+		case tagPrimary:
+			f.isPk = true
+		case tagUnique:
+			f.isUnique = true
+		}
+	}
+
+}
+
 // tokenize returns a new tokenized struct containing the
 // passed struct fields and their sql types.
 func tokenize(t reflect.Type) (*tokenized, error) {
@@ -138,6 +162,7 @@ func tokenize(t reflect.Type) (*tokenized, error) {
 		if !ok {
 			return nil, fmt.Errorf("cannot resolve SQL equivalent for %q", f.Name)
 		}
+		fields[i].processTags(f.Tag)
 		if sqlType == sqlFK {
 			fieldType := f.Type
 			// if it is a ptr we need it dereferenced.
