@@ -1,9 +1,11 @@
 # goSQLMarshal
 A go package that allows struct serialization into SQL statements.
+This is mostly an exercise on reflection and a few other things I wanted to try, so please take that into consideration 
+if you want to use it for something other than academic interest.
 
 The idea behind this package is to allow the serialization of structure into SQL, ideally we will provide:
  * [CREATE](#create)
- * INSERT
+ * [INSERT](#insert)
  * SELECT
  * UPDATE
  * DELETE
@@ -78,4 +80,53 @@ CREATE TABLE Sample
     FOREIGN KEY (ConcreteReference_DifferentNameID_fk) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, 
     
     PRIMARY KEY (ID));
+```
+
+# INSERT
+
+Generates the **INSERT** *SQL* statement for the given structure.
+In this example we can see how after creating the marshaller we will insert the same structure we used
+to create it, bear in mind that you could create the marshaller with an empty struct and then re-use it
+with as many instances of these structs as you like
+
+```go
+func doSQLInsert() (string, error) {
+	sample := SampleInsert{
+		ID:   1,
+		Name: "a sample name",
+		Reference: &ReferenceInsert{
+			DifferentNameID: 1,
+			AnExtraID:       3,
+			Name:            "a reference name",
+		},
+		ConcreteReference: Reference{
+			DifferentNameID: 2,
+			Name:            "another reference name",
+		},
+	}
+
+	m, err := NewTypeSQLMarshaller(sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot create marshaler: %v", err)
+	}
+
+	dr := &ANSISQLDriver{}
+
+	c, err := m.Insert(dr, sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot marshall to INSERT statement: %v", err)
+	}
+	return c, nil
+}
+```
+
+```sql
+INSERT INTO SampleInsert 
+  (ID, 
+   Name, 
+   Reference_DifferentNameID_fk, 
+   Reference_AnExtraID_fk, 
+   ConcreteReference_DifferentNameID_fk) 
+VALUES 
+  (1, "a sample name", 1, 3, 2);
 ```

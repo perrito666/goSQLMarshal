@@ -208,3 +208,58 @@ func TestDocSampleCreate(t *testing.T) {
 	}
 
 }
+
+type SampleInsert struct {
+	ID                int `sql:"primary"`
+	Name              string
+	Reference         *ReferenceInsert
+	ConcreteReference Reference
+}
+
+type ReferenceInsert struct {
+	DifferentNameID int `sql:"primary"`
+	AnExtraID       int `sql:"primary"`
+	Name            string
+}
+
+func doSQLInsert() (string, error) {
+	sample := SampleInsert{
+		ID:   1,
+		Name: "a sample name",
+		Reference: &ReferenceInsert{
+			DifferentNameID: 1,
+			AnExtraID:       3,
+			Name:            "a reference name",
+		},
+		ConcreteReference: Reference{
+			DifferentNameID: 2,
+			Name:            "another reference name",
+		},
+	}
+
+	m, err := NewTypeSQLMarshaller(sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot create marshaler: %v", err)
+	}
+
+	dr := &ANSISQLDriver{}
+
+	c, err := m.Insert(dr, sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot marshall to INSERT statement: %v", err)
+	}
+	return c, nil
+}
+
+func TestDocSampleInsert(t *testing.T) {
+	c, err := doSQLInsert()
+	if err != nil {
+		t.Errorf("could not run documentation sample for INSERT: %v", err)
+	}
+	t.Log(c)
+	expectedSQL := `INSERT INTO SampleInsert (ID, Name, Reference_DifferentNameID_fk, Reference_AnExtraID_fk, ConcreteReference_DifferentNameID_fk) VALUES (1, "a sample name", 1, 3, 2);`
+	if c != expectedSQL {
+		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+}

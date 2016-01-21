@@ -19,9 +19,10 @@ const (
 	baseInsert = `INSERT INTO %s (%s) VALUES (%s);`
 )
 
-// Create returns a SQL Create Statement for the passed object
-// if the type passed is different from the one of the marshaller
-// it returns an error.
+// Create returns a SQL CREATE Statement for the type of this marshaller
+// or error if it cannot generate it.
+// Fields that hold structs or pointers will be considered Foreign Keys
+// Only Ptr of Stucts are supported for the moment.
 func (s *SQLMarshaller) Create(driver SQLDriver) (string, error) {
 	fields, err := s.tokenized.fieldsAndTypes(driver)
 	if err != nil {
@@ -30,6 +31,11 @@ func (s *SQLMarshaller) Create(driver SQLDriver) (string, error) {
 	return fmt.Sprintf(baseCREATE, s.typeOf.Name(), strings.Join(fields, ", ")), nil
 }
 
+// Insert returns a SQL INSERT statements for the passed object or
+// error if it cannot process the passed object.
+// If there are Fields which are structs or pointers to structs
+// it will consider them Foreign Keys up to only one level of
+// indirection.
 func (s *SQLMarshaller) Insert(driver SQLDriver, in interface{}) (string, error) {
 	fields, values, err := s.tokenized.fieldsAndValues(driver, in)
 	if err != nil {

@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
+// ANSISQLFieldKind represents any SQL kind that is currently supported.
 type ANSISQLFieldKind int
 
 const (
-	sqlInvalid = iota
+	sqlInvalid ANSISQLFieldKind = iota
 	sqlFK
 
 	// Character strings
@@ -54,6 +55,8 @@ type tokenized struct {
 	fields []tokenizedField
 }
 
+// primary returns a slice of the names for the fields that are
+// considered primary keys.
 func (t *tokenized) primary() []string {
 	primary := []string{}
 	for _, f := range t.fields {
@@ -64,6 +67,9 @@ func (t *tokenized) primary() []string {
 	return primary
 }
 
+// define is a convenience function that returns the SQL definition for the given field
+// name with the passed kind using the primary and fallback sql driver or error if its
+// not possible to creat the definition.
 func define(kind ANSISQLFieldKind, name string, driver, fallback SQLDriver) (string, error) {
 	definition, ok := driver.Define(kind, name)
 	if !ok {
@@ -76,6 +82,8 @@ func define(kind ANSISQLFieldKind, name string, driver, fallback SQLDriver) (str
 
 }
 
+// fieldKind returns the SQL kind for the given field and a boolean
+// indicating if it was possible to determine it.
 func (t *tokenized) fieldKind(name string) (ANSISQLFieldKind, bool) {
 	for _, f := range t.fields {
 		if f.name == name {
@@ -144,6 +152,10 @@ func (t *tokenized) fieldsAndTypes(d SQLDriver) ([]string, error) {
 	return fields, nil
 }
 
+// primaryFieldsAndValuess returns two slices with the fields and values for primary keys
+// of this tokenized type using "remote" value which should be an instance of the
+// same.
+// TODO(perrito666) add a type check
 func (t *tokenized) primaryFieldsAndValuess(name string, remote reflect.Value) ([]string, []string, error) {
 	pks := t.primary()
 	fields := make([]string, len(pks))
@@ -165,6 +177,9 @@ func (t *tokenized) primaryFieldsAndValuess(name string, remote reflect.Value) (
 
 }
 
+// valueStringer tries to return a string representing the value
+// of the passed reflect.Value and a boolean indicating if it
+// was possible.
 func valueStringer(value reflect.Value) (string, bool) {
 	var stringValue string
 	switch value.Kind() {
@@ -193,6 +208,10 @@ func valueStringer(value reflect.Value) (string, bool) {
 
 }
 
+// fieldsAndValues returns two slices representing the fields in the passed interface
+// and its values, all in strings or errors if it was not possible to determine them.
+// The passed object should be of the same type as the tokenized.
+// TODO(perrito666) add a type check for the interface.
 func (t *tokenized) fieldsAndValues(d SQLDriver, in interface{}) ([]string, []string, error) {
 	fields := []string{}
 	values := []string{}
@@ -259,6 +278,8 @@ const (
 	tagUnique  = "unique"
 )
 
+// processTags is a convenience method that checks if
+// the passed tag has sql information.
 func (f *tokenizedField) processTags(tag reflect.StructTag) {
 	tagstring := tag.Get("sql")
 	tags := strings.Split(tagstring, ",")
