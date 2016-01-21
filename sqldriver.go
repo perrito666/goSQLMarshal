@@ -16,7 +16,7 @@ type SQLDriver interface {
 	// DefineFK returns the definition for a Foreign Key
 	// composed with the field name, the foreign table name
 	// and the pk/pks of the referenced table.
-	DefineFK(string, string, []string) string
+	DefineFK(string, []string, []string) string
 
 	// DefinePK returns the Primary key definition for the
 	// field or fields passed and a boolean indicating if
@@ -49,7 +49,7 @@ type ANSISQLDriver struct {
 
 // customers_services_fk FOREIGN KEY (service_id) REFERENCES services (service_id) ON DELETE CASCADE ON UPDATE CASCADE
 const (
-	fkTemplate   = `%s FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE ON UPDATE CASCADE`
+	fkTemplate   = `FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE CASCADE ON UPDATE CASCADE`
 	pkTemplate   = `PRIMARY KEY (%s)`
 	baseTemplate = `%s %s`
 )
@@ -65,9 +65,10 @@ func (*ANSISQLDriver) Define(k ANSISQLFieldKind, name string) (string, bool) {
 }
 
 // DefineFK implements SQLDriver
-func (*ANSISQLDriver) DefineFK(fieldName, referenceName string, referenceFields []string) string {
+func (*ANSISQLDriver) DefineFK(referenceName string, fieldNames, referenceFields []string) string {
 	referenceField := strings.Join(referenceFields, ", ")
-	return fmt.Sprintf(fkTemplate, fieldName, referenceField, referenceName, referenceField)
+	localFieldNames := strings.Join(fieldNames, ", ")
+	return fmt.Sprintf(fkTemplate, localFieldNames, referenceName, referenceField)
 }
 
 // DefinePK implements SQLDriver

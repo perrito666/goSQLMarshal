@@ -20,6 +20,20 @@ type dumbStruct struct {
 	testStruct dumbFK
 }
 
+type dumbFKMulti struct {
+	aField       int `sql:"primary"`
+	aField2      int `sql:"primary"`
+	anotherField string
+}
+
+type dumbStructMulti struct {
+	testInt    int `sql:"primary"`
+	testString string
+	testFloat  float32
+	testPtr    *dumbFKMulti
+	testStruct dumbFKMulti
+}
+
 type untaggedDumbFK struct {
 	aField       int
 	anotherField string
@@ -59,10 +73,51 @@ func TestCreateTagged(t *testing.T) {
 	if err != nil {
 		t.Errorf("cannot marshall to CREATE statement: %v", err)
 	}
-	// TODO(perrito666) check statement without depending on
-	// the order of the map.
 	t.Log(c)
-	expectedSQL := `CREATE TABLE dumbStruct testInt SMALLINT, testString VARCHAR, testFloat FLOAT, testPtr FOREIGN KEY (aField) REFERENCES dumbFK (aField) ON DELETE CASCADE ON UPDATE CASCADE, testStruct FOREIGN KEY (aField) REFERENCES dumbFK (aField) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY (testInt);`
+	expectedSQL := `CREATE TABLE dumbStruct (testInt SMALLINT, testString VARCHAR, testFloat FLOAT, testPtr_aField_fk SMALLINT, testStruct_aField_fk SMALLINT, FOREIGN KEY (testPtr_aField_fk) REFERENCES dumbFK (aField) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (testStruct_aField_fk) REFERENCES dumbFK (aField) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY (testInt));`
+	if c != expectedSQL {
+		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+	c, err = m.Insert(dr, d)
+	if err != nil {
+		t.Errorf("cannot marshall to INSERT statement: %v", err)
+	}
+	t.Log(c)
+	expectedSQL = `INSERT INTO dumbStruct (testInt, testString, testFloat, testPtr_aField_fk, testStruct_aField_fk) VALUES (1, "some velvet string", 2.000000, 3, 4);`
+	if c != expectedSQL {
+		t.Errorf("unexpected INSERT statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+}
+
+func TestCreateTaggedMultiPK(t *testing.T) {
+	d := dumbStructMulti{
+		testInt:    1,
+		testString: "some velvet string",
+		testFloat:  2.0,
+		testPtr: &dumbFKMulti{
+			aField:       3,
+			aField2:      5,
+			anotherField: "another string",
+		},
+		testStruct: dumbFKMulti{
+			aField:       4,
+			aField2:      6,
+			anotherField: "another non struct field",
+		},
+	}
+	m, err := NewTypeSQLMarshaller(d)
+	if err != nil {
+		t.Errorf("cannot create marshaler: %v", err)
+	}
+	dr := &ANSISQLDriver{}
+	c, err := m.Create(dr)
+	if err != nil {
+		t.Errorf("cannot marshall to CREATE statement: %v", err)
+	}
+	t.Log(c)
+	expectedSQL := `CREATE TABLE dumbStructMulti (testInt SMALLINT, testString VARCHAR, testFloat FLOAT, testPtr_aField_fk SMALLINT, testPtr_aField2_fk SMALLINT, testStruct_aField_fk SMALLINT, testStruct_aField2_fk SMALLINT, FOREIGN KEY (testPtr_aField_fk, testPtr_aField2_fk) REFERENCES dumbFKMulti (aField, aField2) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (testStruct_aField_fk, testStruct_aField2_fk) REFERENCES dumbFKMulti (aField, aField2) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY (testInt));`
 	if c != expectedSQL {
 		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}
@@ -92,10 +147,8 @@ func TestCreateUnTagged(t *testing.T) {
 	if err != nil {
 		t.Errorf("cannot marshall to CREATE statement: %v", err)
 	}
-	// TODO(perrito666) check statement without depending on
-	// the order of the map.
 	t.Log(c)
-	expectedSQL := `CREATE TABLE untaggedDumbStruct testInt SMALLINT, testString VARCHAR, testFloat FLOAT, testPtr FOREIGN KEY (testPtr) REFERENCES untaggedDumbFK (testPtr) ON DELETE CASCADE ON UPDATE CASCADE, testStruct FOREIGN KEY (testStruct) REFERENCES untaggedDumbFK (testStruct) ON DELETE CASCADE ON UPDATE CASCADE;`
+	expectedSQL := `CREATE TABLE untaggedDumbStruct (testInt SMALLINT, testString VARCHAR, testFloat FLOAT, testPtr INT, testStruct INT, FOREIGN KEY (testPtr) REFERENCES untaggedDumbFK (_ID) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (testStruct) REFERENCES untaggedDumbFK (_ID) ON DELETE CASCADE ON UPDATE CASCADE);`
 	if c != expectedSQL {
 		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}
@@ -149,7 +202,7 @@ func TestDocSampleCreate(t *testing.T) {
 		t.Errorf("could not run documentation sample for CREATE: %v", err)
 	}
 	t.Log(c)
-	expectedSQL := `CREATE TABLE Sample ID SMALLINT, Name VARCHAR, Reference FOREIGN KEY (DifferentNameID) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, ConcreteReference FOREIGN KEY (DifferentNameID) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY (ID);`
+	expectedSQL := `CREATE TABLE Sample (ID SMALLINT, Name VARCHAR, Reference_DifferentNameID_fk SMALLINT, ConcreteReference_DifferentNameID_fk SMALLINT, FOREIGN KEY (Reference_DifferentNameID_fk) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, FOREIGN KEY (ConcreteReference_DifferentNameID_fk) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY (ID));`
 	if c != expectedSQL {
 		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}

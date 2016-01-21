@@ -40,6 +40,7 @@ const (
 type tokenizedField struct {
 	name     string
 	kind     ANSISQLFieldKind
+	goType   reflect.Type
 	isPk     bool
 	isUnique bool
 	// TODO (perrito666) implement here a way to recursively tokenize for fk
@@ -63,43 +64,165 @@ func (t *tokenized) primary() []string {
 	return primary
 }
 
+func define(kind ANSISQLFieldKind, name string, driver, fallback SQLDriver) (string, error) {
+	definition, ok := driver.Define(kind, name)
+	if !ok {
+		definition, ok = fallback.Define(kind, name)
+	}
+	if !ok {
+		return "", fmt.Errorf("cannot determine an SQL Definition for field %q in the provided driver or the Fallback driver")
+	}
+	return definition, nil
+
+}
+
+func (t *tokenized) fieldKind(name string) (ANSISQLFieldKind, bool) {
+	for _, f := range t.fields {
+		if f.name == name {
+			return f.kind, true
+		}
+	}
+	return sqlInvalid, false
+}
+
 // fieldsAndTypes retuns a map of the fields in the tokenized type
 // and its SQL types.
-// TODO(perrito666) use tags in fields for fk
-// TODO(perrito666) fix FK
 func (t *tokenized) fieldsAndTypes(d SQLDriver) ([]string, error) {
-	fields := make([]string, len(t.fields))
 	ansiD := ANSISQLDriver{}
+	partialFields := []string{}
+	partialFKs := []string{}
 	for i := range t.fields {
 		field := t.fields[i]
-		// FIXME (perrito666) call fk specific function here with the extra data
-		// to keep the basic one clean
 		var definition string
-		var ok bool
+		var err error
 		switch field.kind {
 		case sqlFK:
 			pk := field.references.primary()
 			// TODO(perrito666) insert an _id field when there is no pk
+			// for the moment I make a big BIG assumption
 			if len(pk) == 0 {
-				pk = []string{field.name}
+				partialFKs = append(partialFKs, d.DefineFK(field.references.name, []string{field.name}, []string{"_ID"}))
+				definition, err := define(sqlInt, field.name, d, &ansiD)
+				if err != nil {
+					return nil, fmt.Errorf("trying to define %q foreign key field without knowledge of remote pks: %v", field.name, err)
+				}
+
+				partialFields = append(partialFields, definition)
+				continue
 			}
-			definition = d.DefineFK(field.name, field.references.name, pk)
+			fieldNames := make([]string, len(pk))
+			for i := range pk {
+				pkName := pk[i]
+				name := fmt.Sprintf("%s_%s_fk", field.name, pkName)
+				fieldKind, ok := field.references.fieldKind(pkName)
+				if !ok {
+					return nil, fmt.Errorf("cannot determine the type for referenced pk %q in type %q", pkName, field.references.name)
+				}
+				definition, err := define(fieldKind, name, d, &ansiD)
+				if err != nil {
+					return nil, fmt.Errorf("trying to define %q foreign key field: %v", field.name, err)
+				}
+				partialFields = append(partialFields, definition)
+				fieldNames[i] = name
+			}
+
+			partialFKs = append(partialFKs, d.DefineFK(field.references.name, fieldNames, pk))
+			continue
 		default:
-			definition, ok = d.Define(field.kind, field.name)
-			if !ok {
-				definition, ok = ansiD.Define(field.kind, field.name)
-			}
-			if !ok {
-				return nil, fmt.Errorf("cannot determine an SQL Definition for field %q in the provided driver or the ANSI driver")
+			definition, err = define(field.kind, field.name, d, &ansiD)
+			if err != nil {
+				return nil, fmt.Errorf("trying to define %q field: %v", field.name, err)
 			}
 		}
-		fields[i] = definition
+		partialFields = append(partialFields, definition)
 	}
+	fields := append(partialFields, partialFKs...)
 	pk, ok := d.DefinePK(t.primary())
 	if ok {
 		fields = append(fields, pk)
 	}
 	return fields, nil
+}
+
+func (t *tokenized) primaryFieldsAndValuess(name string, remote reflect.Value) ([]string, []string, error) {
+	pks := t.primary()
+	fields := make([]string, len(pks))
+	values := make([]string, len(pks))
+	for i := range pks {
+		current := pks[i]
+		fmt.Println(pks)
+
+		value := remote.FieldByName(current)
+		s, ok := valueStringer(value)
+		if !ok {
+			return nil, nil, fmt.Errorf("cannot determine primary key values, failed on %q", current)
+		}
+
+		fields[i] = fmt.Sprintf("%s_%s_fk", name, current)
+		values[i] = s
+	}
+	return fields, values, nil
+
+}
+
+func valueStringer(value reflect.Value) (string, bool) {
+	var stringValue string
+	switch value.Kind() {
+	case reflect.Bool:
+		v := value.Bool()
+		if v {
+			stringValue = "1"
+		} else {
+			stringValue = "0"
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v := value.Int()
+		stringValue = fmt.Sprintf("%d", v)
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v := value.Uint()
+		stringValue = fmt.Sprintf("%d", v)
+	case reflect.Float32, reflect.Float64:
+		v := value.Float()
+		stringValue = fmt.Sprintf("%f", v)
+	case reflect.String:
+		stringValue = fmt.Sprintf("%q", value.String())
+	default:
+		return "", false
+	}
+	return stringValue, true
+
+}
+
+func (t *tokenized) fieldsAndValues(d SQLDriver, in interface{}) ([]string, []string, error) {
+	fields := []string{}
+	values := []string{}
+	concreteElem := reflect.ValueOf(in)
+	for i := range t.fields {
+		current := t.fields[i]
+		value := concreteElem.FieldByName(current.name)
+		if value.Kind() == reflect.Ptr {
+			value = value.Elem()
+		}
+
+		if value.Kind() == reflect.Struct {
+			f, val, err := current.references.primaryFieldsAndValuess(current.name, value)
+			if err != nil {
+				return nil, nil, fmt.Errorf("crafting foreign key: %v", err)
+			}
+			fields = append(fields, f...)
+			values = append(values, val...)
+			continue
+		}
+		stringValue, ok := valueStringer(value)
+		if !ok {
+			continue
+		}
+
+		fields = append(fields, current.name)
+		values = append(values, stringValue)
+
+	}
+	return fields, values, nil
 }
 
 // resolveType tries to map the values on the struct
@@ -158,6 +281,7 @@ func tokenize(t reflect.Type) (*tokenized, error) {
 	for i := 0; i < fieldCount; i++ {
 		f := t.Field(i)
 		fields[i].name = f.Name
+		fields[i].goType = f.Type
 		sqlType, ok := resolveType(f)
 		if !ok {
 			return nil, fmt.Errorf("cannot resolve SQL equivalent for %q", f.Name)

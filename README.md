@@ -24,7 +24,7 @@ Currently the supported are:
 If no primary key is tagged, there will be none, the Foreign Key pointing to a non primary key structure 
 will assume that the key name is the same as the field in the referencing struct.
 
-***Note:** there is no consistency checking at present:*
+**Note:** *there is no consistency checking at present:*
 
 ```go
 type Sample struct {
@@ -68,5 +68,14 @@ func doSQLCreate() (string, error) {
 }
 ```
 ```sql
-CREATE TABLE Sample ID SMALLINT, Name VARCHAR, Reference FOREIGN KEY (DifferentNameID) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, ConcreteReference FOREIGN KEY (DifferentNameID) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, PRIMARY KEY (ID);
+CREATE TABLE Sample 
+   (ID SMALLINT, 
+    Name VARCHAR, 
+    Reference_DifferentNameID_fk SMALLINT, 
+    ConcreteReference_DifferentNameID_fk SMALLINT, 
+
+    FOREIGN KEY (Reference_DifferentNameID_fk) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, 
+    FOREIGN KEY (ConcreteReference_DifferentNameID_fk) REFERENCES Reference (DifferentNameID) ON DELETE CASCADE ON UPDATE CASCADE, 
+    
+    PRIMARY KEY (ID));
 ```
