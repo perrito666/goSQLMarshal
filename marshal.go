@@ -5,7 +5,6 @@ package sqlmarshal
 import (
 	"fmt"
 	"reflect"
-	"strings"
 )
 
 // SQLMarshaller is a marshaller for a given type of object.
@@ -14,21 +13,27 @@ type SQLMarshaller struct {
 	tokenized *tokenized
 }
 
-const (
-	baseCREATE = `CREATE TABLE %s (%s);`
-	baseInsert = `INSERT INTO %s (%s) VALUES (%s);`
-)
+// UpdatePK return an update statement for the passed object that
+// should update the entry represented by the pk/s on the passed struct
+// with the values it has set.
+func (s *SQLMarshaller) UpdatePK(in interface{}) (string, error) {
+	pks, fields, err := s.tokenized.pksFieldsAndValues(in)
+	if err != nil {
+		return "", fmt.Errorf("extracting the pks, fields and values: %v", err)
+	}
+	return CraftUpdate(s.typeOf.Name(), pks, fields), nil
+}
 
 // Create returns a SQL CREATE Statement for the type of this marshaller
 // or error if it cannot generate it.
 // Fields that hold structs or pointers will be considered Foreign Keys
 // Only Ptr of Stucts are supported for the moment.
 func (s *SQLMarshaller) Create(driver SQLDriver) (string, error) {
-	fields, err := s.tokenized.fieldsAndTypes(driver)
+	fields, fks, pks, err := s.tokenized.fieldsAndTypes()
 	if err != nil {
-		return "", fmt.Errorf("crafting the fields for CREATE statement: %v", err)
+		return "", fmt.Errorf("gattering the fields for CREATE statement: %v", err)
 	}
-	return fmt.Sprintf(baseCREATE, s.typeOf.Name(), strings.Join(fields, ", ")), nil
+	return CraftCreate(driver, s.typeOf.Name(), fields, fks, pks)
 }
 
 // Insert returns a SQL INSERT statements for the passed object or
@@ -36,19 +41,16 @@ func (s *SQLMarshaller) Create(driver SQLDriver) (string, error) {
 // If there are Fields which are structs or pointers to structs
 // it will consider them Foreign Keys up to only one level of
 // indirection.
-func (s *SQLMarshaller) Insert(driver SQLDriver, in interface{}) (string, error) {
-	fields, values, err := s.tokenized.fieldsAndValues(driver, in)
+func (s *SQLMarshaller) Insert(in interface{}) (string, error) {
+	fields, err := s.tokenized.fieldsAndValues(in)
 	if err != nil {
 		return "", fmt.Errorf("crafting the fields/values for INSERT statement: %v", err)
 	}
 
-	if len(fields) != len(values) {
-		return "", fmt.Errorf("the amount of fields and values differ %d vs %d", fields, values)
-	}
-	if len(fields) == 0 {
+	if fields.Len() == 0 {
 		return "", fmt.Errorf("could not determine fields and values to insert, the resulting query would be invalid")
 	}
-	return fmt.Sprintf(baseInsert, s.typeOf.Name(), strings.Join(fields, ", "), strings.Join(values, ", ")), nil
+	return CraftInsert(s.typeOf.Name(), fields), nil
 }
 
 // NewTypeSQLMarshaller returns a marshaller for the type of the passed

@@ -7,7 +7,7 @@ The idea behind this package is to allow the serialization of structure into SQL
  * [CREATE](#create)
  * [INSERT](#insert)
  * SELECT
- * UPDATE
+ * [UPDATE](#update)
  * DELETE
 
 # CREATE
@@ -129,4 +129,48 @@ INSERT INTO SampleInsert
    ConcreteReference_DifferentNameID_fk) 
 VALUES 
   (1, "a sample name", 1, 3, 2);
+```
+
+# UPDATE
+
+Generates the **UPDATE** statement, the update marshaller is intended to be split in two:
+
+ * UpdatePK: Returns an **UPDATE** statement where the conditions are obtained from
+   the primary keys of the passed struct and the values from the rest of the fields.
+   There is no option to not update a field, this could be used to load a struct from
+   the db, change it and then re-save it.
+
+ * Update(**TODO**): Returns and **UPDATE** statement from the passed struct but accepts arbitrary
+   conditions with some degree of validation.
+
+```go
+func doSQLUpdate() (string, error) {
+	sample := ReferenceUpdate{
+		DifferentNameID: 1,
+		AnExtraID:       3,
+		Name:            "a reference name",
+		AnotherField:    "just to show off",
+	}
+
+	m, err := NewTypeSQLMarshaller(sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot create marshaler: %v", err)
+	}
+
+	c, err := m.UpdatePK(sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot marshall to UPDATE statement: %v", err)
+	}
+	return c, nil
+}
+```
+
+```sql
+UPDATE ReferenceUpdate 
+SET 
+  Name="a reference name", 
+  AnotherField="just to show off" 
+WHERE 
+  DifferentNameID=1 AND 
+  AnExtraID=3;
 ```

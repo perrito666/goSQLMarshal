@@ -50,7 +50,7 @@ type untaggedDumbStruct struct {
 func (*dumbStruct) methodsAreIgnored() {
 }
 
-func TestCreateTagged(t *testing.T) {
+func TestTagged(t *testing.T) {
 	d := dumbStruct{
 		testInt:    1,
 		testString: "some velvet string",
@@ -79,7 +79,7 @@ func TestCreateTagged(t *testing.T) {
 		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}
 
-	c, err = m.Insert(dr, d)
+	c, err = m.Insert(d)
 	if err != nil {
 		t.Errorf("cannot marshall to INSERT statement: %v", err)
 	}
@@ -89,18 +89,29 @@ func TestCreateTagged(t *testing.T) {
 		t.Errorf("unexpected INSERT statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}
 
+	c, err = m.UpdatePK(d)
+	if err != nil {
+		t.Errorf("cannot marshall to UPDATE statement: %v", err)
+	}
+	t.Log(c)
+	expectedSQL = `UPDATE dumbStruct SET testString="some velvet string", testFloat=2.000000, testPtr_aField_fk=3, testStruct_aField_fk=4 WHERE testInt=1;`
+	if c != expectedSQL {
+		t.Errorf("unexpected UPDATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
 }
 
-func TestCreateTaggedMultiPK(t *testing.T) {
+func TestTaggedMultiPK(t *testing.T) {
+	dm := dumbFKMulti{
+		aField:       3,
+		aField2:      5,
+		anotherField: "another string",
+	}
 	d := dumbStructMulti{
 		testInt:    1,
 		testString: "some velvet string",
 		testFloat:  2.0,
-		testPtr: &dumbFKMulti{
-			aField:       3,
-			aField2:      5,
-			anotherField: "another string",
-		},
+		testPtr:    &dm,
 		testStruct: dumbFKMulti{
 			aField:       4,
 			aField2:      6,
@@ -122,9 +133,54 @@ func TestCreateTaggedMultiPK(t *testing.T) {
 		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}
 
+	c, err = m.Insert(d)
+	if err != nil {
+		t.Errorf("cannot marshall to INSERT statement: %v", err)
+	}
+	t.Log(c)
+	expectedSQL = `INSERT INTO dumbStructMulti (testInt, testString, testFloat, testPtr_aField_fk, testPtr_aField2_fk, testStruct_aField_fk, testStruct_aField2_fk) VALUES (1, "some velvet string", 2.000000, 3, 5, 4, 6);`
+	if c != expectedSQL {
+		t.Errorf("unexpected INSERT statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+	c, err = m.UpdatePK(d)
+	if err != nil {
+		t.Errorf("cannot marshall to UPDATE statement: %v", err)
+	}
+	t.Log(c)
+	expectedSQL = `UPDATE dumbStructMulti SET testString="some velvet string", testFloat=2.000000, testPtr_aField_fk=3, testPtr_aField2_fk=5, testStruct_aField_fk=4, testStruct_aField2_fk=6 WHERE testInt=1;`
+	if c != expectedSQL {
+		t.Errorf("unexpected UPDATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+	m, err = NewTypeSQLMarshaller(dm)
+	if err != nil {
+		t.Errorf("cannot create marshaler: %v", err)
+	}
+
+	c, err = m.Create(dr)
+	if err != nil {
+		t.Errorf("cannot marshall to CREATE statement: %v", err)
+	}
+	t.Log(c)
+	expectedSQL = `CREATE TABLE dumbFKMulti (aField SMALLINT, aField2 SMALLINT, anotherField VARCHAR, PRIMARY KEY (aField ,aField2));`
+	if c != expectedSQL {
+		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+	c, err = m.UpdatePK(dm)
+	if err != nil {
+		t.Errorf("cannot marshall to UPDATE statement: %v", err)
+	}
+	t.Log(c)
+	expectedSQL = `UPDATE dumbFKMulti SET anotherField="another string" WHERE aField=3 AND aField2=5;`
+	if c != expectedSQL {
+		t.Errorf("unexpected UPDATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
 }
 
-func TestCreateUnTagged(t *testing.T) {
+func TestUnTagged(t *testing.T) {
 	d := untaggedDumbStruct{
 		testInt:    1,
 		testString: "some velvet string",
@@ -242,9 +298,7 @@ func doSQLInsert() (string, error) {
 		return "", fmt.Errorf("cannot create marshaler: %v", err)
 	}
 
-	dr := &ANSISQLDriver{}
-
-	c, err := m.Insert(dr, sample)
+	c, err := m.Insert(sample)
 	if err != nil {
 		return "", fmt.Errorf("cannot marshall to INSERT statement: %v", err)
 	}
@@ -258,6 +312,46 @@ func TestDocSampleInsert(t *testing.T) {
 	}
 	t.Log(c)
 	expectedSQL := `INSERT INTO SampleInsert (ID, Name, Reference_DifferentNameID_fk, Reference_AnExtraID_fk, ConcreteReference_DifferentNameID_fk) VALUES (1, "a sample name", 1, 3, 2);`
+	if c != expectedSQL {
+		t.Errorf("unexpected INSERT statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
+	}
+
+}
+
+type ReferenceUpdate struct {
+	DifferentNameID int `sql:"primary"`
+	AnExtraID       int `sql:"primary"`
+	Name            string
+	AnotherField    string
+}
+
+func doSQLUpdate() (string, error) {
+	sample := ReferenceUpdate{
+		DifferentNameID: 1,
+		AnExtraID:       3,
+		Name:            "a reference name",
+		AnotherField:    "just to show off",
+	}
+
+	m, err := NewTypeSQLMarshaller(sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot create marshaler: %v", err)
+	}
+
+	c, err := m.UpdatePK(sample)
+	if err != nil {
+		return "", fmt.Errorf("cannot marshall to UPDATE statement: %v", err)
+	}
+	return c, nil
+}
+
+func TestDocSampleUpdate(t *testing.T) {
+	c, err := doSQLUpdate()
+	if err != nil {
+		t.Errorf("could not run documentation sample for UPDATE: %v", err)
+	}
+	t.Log(c)
+	expectedSQL := `UPDATE ReferenceUpdate SET Name="a reference name", AnotherField="just to show off" WHERE DifferentNameID=1 AND AnExtraID=3;`
 	if c != expectedSQL {
 		t.Errorf("unexpected CREATE statement: \nexpected: %q\nobtained: %q", expectedSQL, c)
 	}
