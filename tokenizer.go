@@ -41,7 +41,7 @@ const (
 type tokenizedField struct {
 	name     string
 	kind     ANSISQLFieldKind
-	goType   reflect.Type
+	goType   reflect.Kind
 	isPk     bool
 	isUnique bool
 	// TODO (perrito666) implement here a way to recursively tokenize for fk
@@ -148,6 +148,7 @@ func (t *tokenized) fieldsAndTypes() ([]FieldDefinition, []FKDefinition, []strin
 					})
 
 			}
+
 			partialFKs = append(partialFKs,
 				FKDefinition{
 					RemoteTable: field.references.name,
@@ -282,10 +283,9 @@ func (t *tokenized) pksFieldsAndValues(in interface{}) (*FieldsWithValue, *Field
 // resolveType tries to map the values on the struct
 // to valid ANSI SQL types, for now it is quite rudimentary
 // and arbitrary, it also asumes all pointers to be struct ptr.
-func resolveType(f reflect.StructField) (ANSISQLFieldKind, bool) {
-	t := f.Type
+func resolveType(f reflect.Kind) (ANSISQLFieldKind, error) {
 	var sqlType ANSISQLFieldKind
-	switch t.Kind() {
+	switch f {
 	case reflect.Bool:
 		sqlType = SqlInt
 	case reflect.Int, reflect.Int8:
@@ -303,9 +303,9 @@ func resolveType(f reflect.StructField) (ANSISQLFieldKind, bool) {
 	case reflect.Struct, reflect.Ptr:
 		sqlType = SqlFK
 	default:
-		return SqlInvalid, false
+		return SqlInvalid, fmt.Errorf("Cannot convert %v to any valid SQL type", f)
 	}
-	return sqlType, true
+	return sqlType, nil
 }
 
 const (
@@ -329,18 +329,108 @@ func (f *tokenizedField) processTags(tag reflect.StructTag) {
 
 }
 
-// tokenize returns a new tokenized struct containing the
+// resolveKindByString receives a type in form of a string
+// and returns the proper reflected kind.
+func resolveKindByString(typeof string) (reflect.Kind, error) {
+	var r_typeof reflect.Kind
+
+	switch typeof {
+	case "bool":
+		r_typeof = reflect.Bool
+	case "int":
+		r_typeof = reflect.Int
+	case "int8":
+		r_typeof = reflect.Int8
+	case "int16":
+		r_typeof = reflect.Int16
+	case "int32":
+		r_typeof = reflect.Int32
+	case "int64":
+		r_typeof = reflect.Int64
+	case "uint8":
+		r_typeof = reflect.Uint8
+	case "uint16":
+		r_typeof = reflect.Uint16
+	case "uint32":
+		r_typeof = reflect.Uint32
+	case "uint64":
+		r_typeof = reflect.Uint64
+	case "float32":
+		r_typeof = reflect.Float32
+	case "float64":
+		r_typeof = reflect.Float64
+	case "string":
+		r_typeof = reflect.String
+	case "reference":
+		r_typeof = reflect.Ptr
+	default:
+		return reflect.Invalid, fmt.Errorf("Cannot resolve the given string: \"%s\" to any valid type", typeof)
+	}
+
+	return r_typeof, nil
+}
+
+// TokenizeMap returns a new tokenized struct populated
+// from the passed map, an example map structure would be the following YAML definition:
+//     table:
+//       id:
+//         type: int
+//         unique: true
+//         primary: true
+//       created:
+//         type: float
+//
+func TokenizeMap(t map[interface{}]interface{}, name string) (*tokenized, error) {
+	var fields []tokenizedField
+
+	for key, value := range t {
+		value := value.(map[interface{}]interface{})
+		kind, err := resolveKindByString(value["type"].(string))
+		if err != nil {
+			return nil, err
+		}
+
+		sqlType, err := resolveType(kind)
+		if err != nil {
+			return nil, err
+		}
+
+		field := tokenizedField{
+			name:   key.(string),
+			goType: kind,
+			kind:   sqlType,
+		}
+
+		if primary, ok := value["primary"]; ok && primary.(bool) {
+			field.isPk = true
+		} else {
+			field.isPk = false
+		}
+
+		if unique, ok := value["unique"]; ok && unique.(bool) {
+			field.isUnique = true
+		} else {
+			field.isUnique = false
+		}
+
+		fields = append(fields, field)
+	}
+
+	return &tokenized{fields: fields, name: name}, nil
+}
+
+// TokenizeType returns a new tokenized struct containing the
 // passed struct fields and their sql types.
-func tokenize(t reflect.Type) (*tokenized, error) {
+func TokenizeType(t reflect.Type, name string) (*tokenized, error) {
 	fieldCount := t.NumField()
 	fields := make([]tokenizedField, fieldCount)
 	for i := 0; i < fieldCount; i++ {
 		f := t.Field(i)
 		fields[i].name = f.Name
-		fields[i].goType = f.Type
-		sqlType, ok := resolveType(f)
-		if !ok {
-			return nil, fmt.Errorf("cannot resolve SQL equivalent for %q", f.Name)
+		fields[i].goType = f.Type.Kind()
+		sqlType, err := resolveType(fields[i].goType)
+		if err != nil {
+			return nil, err
 		}
 		fields[i].processTags(f.Tag)
 		if sqlType == SqlFK {
@@ -352,7 +442,7 @@ func tokenize(t reflect.Type) (*tokenized, error) {
 			if fieldType.Kind() != reflect.Struct {
 				return nil, fmt.Errorf("expected %v got %v", reflect.Struct, fieldType.Kind())
 			}
-			fk, err := tokenize(fieldType)
+			fk, err := TokenizeType(fieldType, fieldType.Name())
 			if err != nil {
 				return nil, fmt.Errorf("resolving foreign key for field %q: %v", f.Name, err)
 			}
@@ -360,5 +450,5 @@ func tokenize(t reflect.Type) (*tokenized, error) {
 		}
 		fields[i].kind = sqlType
 	}
-	return &tokenized{fields: fields, name: t.Name()}, nil
+	return &tokenized{fields: fields, name: name}, nil
 }

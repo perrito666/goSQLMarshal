@@ -21,7 +21,17 @@ func (s *SQLMarshaller) UpdatePK(in interface{}) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("extracting the pks, fields and values: %v", err)
 	}
-	return CraftUpdate(s.typeOf.Name(), pks, fields), nil
+	return CraftUpdate(s.Name(), pks, fields), nil
+}
+
+// Name returns the current name of the marshaller based on the type
+// if no type is provided, it uses the tokenized name
+func (s *SQLMarshaller) Name() string {
+	name := s.typeOf.Name()
+	if name == "" {
+		name = s.tokenized.name
+	}
+	return name
 }
 
 // Create returns a SQL CREATE Statement for the type of this marshaller
@@ -33,7 +43,7 @@ func (s *SQLMarshaller) Create(driver SQLDriver) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("gattering the fields for CREATE statement: %v", err)
 	}
-	return CraftCreate(driver, s.typeOf.Name(), fields, fks, pks)
+	return CraftCreate(driver, s.Name(), fields, fks, pks)
 }
 
 // Insert returns a SQL INSERT statements for the passed object or
@@ -50,19 +60,39 @@ func (s *SQLMarshaller) Insert(in interface{}) (string, error) {
 	if fields.Len() == 0 {
 		return "", fmt.Errorf("could not determine fields and values to insert, the resulting query would be invalid")
 	}
-	return CraftInsert(s.typeOf.Name(), fields), nil
+	return CraftInsert(s.Name(), fields), nil
 }
 
 // NewTypeSQLMarshaller returns a marshaller for the type of the passed
 // object, if it is not a struct it will fail.
-func NewTypeSQLMarshaller(in interface{}) (*SQLMarshaller, error) {
+func NewTypeSQLMarshaller(in interface{}, name string) (*SQLMarshaller, error) {
 	t := reflect.TypeOf(in)
-	if t.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("interface must be a struct")
+
+	var err error
+	var tokens *tokenized
+
+	switch t.Kind() {
+	case reflect.Map:
+		{
+			tokens, err = TokenizeMap(in.(map[interface{}]interface{}), name)
+		}
+	case reflect.Struct:
+		{
+			if name == "" {
+				name = t.Name()
+			}
+			tokens, err = TokenizeType(t, name)
+		}
+	default:
+		{
+			return nil, fmt.Errorf("Only Map and Struct types are currently supported for marshalling")
+		}
 	}
-	tok, err := tokenize(t)
+
 	if err != nil {
 		return nil, fmt.Errorf("creating a marshaller: %v", err)
 	}
-	return &SQLMarshaller{typeOf: t, tokenized: tok}, nil
+
+	return &SQLMarshaller{typeOf: t, tokenized: tokens}, nil
+
 }
